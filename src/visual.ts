@@ -1,33 +1,8 @@
-/*
-*  Power BI Visual CLI
-*
-*  Copyright (c) Microsoft Corporation
-*  All rights reserved.
-*  MIT License
-*
-*  Permission is hereby granted, free of charge, to any person obtaining a copy
-*  of this software and associated documentation files (the ""Software""), to deal
-*  in the Software without restriction, including without limitation the rights
-*  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-*  copies of the Software, and to permit persons to whom the Software is
-*  furnished to do so, subject to the following conditions:
-*
-*  The above copyright notice and this permission notice shall be included in
-*  all copies or substantial portions of the Software.
-*
-*  THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-*  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-*  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-*  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-*  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-*  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-*  THE SOFTWARE.
-*/
-"use strict";
+'use strict';
 
-import "core-js/stable";
-import "./../style/visual.less";
-import powerbi from "powerbi-visuals-api";
+import 'core-js/stable';
+import './../style/visual.less';
+import powerbi from 'powerbi-visuals-api';
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
 import IVisual = powerbi.extensibility.visual.IVisual;
@@ -36,46 +11,90 @@ import VisualObjectInstance = powerbi.VisualObjectInstance;
 import DataView = powerbi.DataView;
 import VisualObjectInstanceEnumerationObject = powerbi.VisualObjectInstanceEnumerationObject;
 
-import { VisualSettings } from "./settings";
+import * as d3Select from 'd3-selection';
+import * as d3Axis from 'd3-axis';
+
+import { VisualSettings } from './settings';
+import { mapViewModel } from './viewModel';
+import { map } from 'd3-collection';
+
 export class Visual implements IVisual {
-    private target: HTMLElement;
-    private updateCount: number;
-    private settings: VisualSettings;
-    private textNode: Text;
+  private target: HTMLElement;
+  private chartContainer: d3.Selection<SVGElement, any, any, any>;
+  private categoryAxisContainer: d3.Selection<SVGElement, any, any, any>;
+  private valueAxisContainer: d3.Selection<SVGElement, any, any, any>;
+  private plotContainer: d3.Selection<SVGElement, any, any, any>;
+  private settings: VisualSettings;
 
-    constructor(options: VisualConstructorOptions) {
-        console.log('Visual constructor', options);
-        this.target = options.element;
-        this.updateCount = 0;
-        if (document) {
-            const new_p: HTMLElement = document.createElement("p");
-            new_p.appendChild(document.createTextNode("Update count:"));
-            const new_em: HTMLElement = document.createElement("em");
-            this.textNode = document.createTextNode(this.updateCount.toString());
-            new_em.appendChild(this.textNode);
-            new_p.appendChild(new_em);
-            this.target.appendChild(new_p);
-        }
-    }
+  constructor(options: VisualConstructorOptions) {
+    console.log('Visual constructor', options);
+    this.target = options.element;
 
-    public update(options: VisualUpdateOptions) {
-        this.settings = Visual.parseSettings(options && options.dataViews && options.dataViews[0]);
-        console.log('Visual update', options);
-        if (this.textNode) {
-            this.textNode.textContent = (this.updateCount++).toString();
-        }
-    }
+    this.chartContainer = d3Select
+      .select(this.target)
+      .append('svg')
+      .attr('id', 'dumbbellChartContainer');
 
-    private static parseSettings(dataView: DataView): VisualSettings {
-        return <VisualSettings>VisualSettings.parse(dataView);
-    }
+    this.categoryAxisContainer = this.chartContainer
+      .append('g')
+      .classed('categoryAxis', true)
+      .classed('axis', true);
+    this.valueAxisContainer = this.chartContainer
+      .append('g')
+      .classed('valueAxis', true)
+      .classed('axis', true);
+    this.plotContainer = this.chartContainer
+      .append('g')
+      .classed('plotArea', true);
+  }
 
-    /**
-     * This function gets called for each of the objects defined in the capabilities files and allows you to select which of the
-     * objects and properties you want to expose to the users in the property pane.
-     *
-     */
-    public enumerateObjectInstances(options: EnumerateVisualObjectInstancesOptions): VisualObjectInstance[] | VisualObjectInstanceEnumerationObject {
-        return VisualSettings.enumerateObjectInstances(this.settings || VisualSettings.getDefault(), options);
-    }
+  public update(options: VisualUpdateOptions) {
+    this.settings = Visual.parseSettings(
+      options && options.dataViews && options.dataViews[0]
+    );
+
+    console.log('Visual update', options);
+
+    this.chartContainer
+      .attr('width', options.viewport.width)
+      .attr('height', options.viewport.height);
+
+    const viewModel = mapViewModel(this.settings, options.viewport);
+
+    this.categoryAxisContainer
+      .attr(
+        'transform',
+        `translate(${viewModel.categoryAxis.translate.x}, ${viewModel.categoryAxis.translate.y})`
+      )
+      .call(d3Axis.axisLeft(viewModel.categoryAxis.scale));
+
+    this.valueAxisContainer.selectAll('*').remove();
+
+    this.valueAxisContainer
+      .attr(
+        'transform',
+        `translate(${viewModel.valueAxis.translate.x}, ${viewModel.valueAxis.translate.y})`
+      )
+      .call(d3Axis.axisBottom(viewModel.valueAxis.scale));
+
+    console.log(viewModel);
+  }
+
+  private static parseSettings(dataView: DataView): VisualSettings {
+    return <VisualSettings>VisualSettings.parse(dataView);
+  }
+
+  /**
+   * This function gets called for each of the objects defined in the capabilities files and allows you to select which of the
+   * objects and properties you want to expose to the users in the property pane.
+   *
+   */
+  public enumerateObjectInstances(
+    options: EnumerateVisualObjectInstancesOptions
+  ): VisualObjectInstance[] | VisualObjectInstanceEnumerationObject {
+    return VisualSettings.enumerateObjectInstances(
+      this.settings || VisualSettings.getDefault(),
+      options
+    );
+  }
 }
