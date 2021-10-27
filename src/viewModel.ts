@@ -1,34 +1,63 @@
 import powerbi from 'powerbi-visuals-api';
-import IViewPort = powerbi.IViewport;
+import IViewport = powerbi.IViewport;
 
 import { VisualSettings } from './settings';
 
 import * as d3Scale from 'd3-scale';
-import { randomLcg } from 'd3-random';
 
+/**
+ * Shared axis properties.
+ */
 interface IAxis {
+  // Physical range of the axis (start and end)
   range: [number, number];
+  // X/Y coordinates for SVG translation of enclosing group
   translate: ICoordinates;
 }
 
+/**
+ * Properties specific to the value axis.
+ */
 interface IValueAxis extends IAxis {
+  // Axis domain values
   domain: [number, number];
-  scale: d3.ScaleLinear<number, number>;
-}
-interface ICategoryAxis extends IAxis {
-  domain: string[];
-  scale: d3.ScaleBand<string>;
+  // Scale to generate axis from domain and range
+  scale: d3Scale.ScaleLinear<number, number>;
+  // Tick count (number of ticks to apply)
+  tickCount: number;
+  // Tick size (length of each gridline)
+  tickSize: number;
 }
 
+/**
+ * Properties specific to the category axis.
+ */
+interface ICategoryAxis extends IAxis {
+  // Category domain values
+  domain: string[];
+  // Scale to generate axis from domain and range
+  scale: d3Scale.ScaleBand<string>;
+}
+
+/**
+ * Generic interface we can use to store x/y coordinates.
+ */
 interface ICoordinates {
   x: number;
   y: number;
 }
 
+/**
+ * Used to specify the visual margin values.
+ */
 interface IMargin {
+  // Pixels to leave at the top
   top: number;
+  // Pixels to leave to the right
   right: number;
+  // Pixels to leave at the bottom
   bottom: number;
+  // Pixels to leave to the left
   left: number;
 }
 
@@ -56,14 +85,15 @@ interface ICategory {
  * Visual view model.
  */
 interface IViewModel {
+  // Visual margin values
   margin: IMargin;
   // Visual category data items
   categories: ICategory[];
   // Parsed visual settings
   settings: VisualSettings;
-
+  // Category axis information
   categoryAxis: ICategoryAxis;
-
+  // Value axis information
   valueAxis: IValueAxis;
 }
 
@@ -74,8 +104,9 @@ interface IViewModel {
  */
 export function mapViewModel(
   settings: VisualSettings,
-  viewPort: IViewPort
+  viewport: IViewport
 ): IViewModel {
+  // Assign our margin values so we can re-use them more easily
   const margin = {
     top: 10,
     right: 10,
@@ -83,22 +114,30 @@ export function mapViewModel(
     left: 75,
   };
 
+  // Value axis domain (min/max)
   const valueAxisDomain: [number, number] = [6, 20];
-  const valueAxisRange: [number, number] = [
-    margin.left,
-    viewPort.width - margin.right,
-  ];
+
+  // Category axis domain (unique values)
   const categoryAxisDomain = [
-    'category A',
-    'category B',
-    'category C',
-    'category D',
+    'Category A',
+    'Category B',
+    'Category C',
+    'Category D',
   ];
 
+  // Derived range for the value axis, based on margin values
+  const valueAxisRange: [number, number] = [
+    margin.left,
+    viewport.width - margin.right,
+  ];
+
+  // Derived range for the category axis, based on margin values
   const categoryAxisRange: [number, number] = [
     margin.top,
-    viewPort.height - margin.bottom,
+    viewport.height - margin.bottom,
   ];
+
+  // View model
   return {
     margin: margin,
     categoryAxis: {
@@ -107,8 +146,12 @@ export function mapViewModel(
       scale: d3Scale
         .scaleBand()
         .domain(categoryAxisDomain)
-        .range(categoryAxisRange),
-      translate: { x: margin.left, y: 0 },
+        .range(categoryAxisRange)
+        .padding(0.2),
+      translate: {
+        x: margin.left,
+        y: 0,
+      },
     },
     valueAxis: {
       range: valueAxisRange,
@@ -116,8 +159,14 @@ export function mapViewModel(
       scale: d3Scale
         .scaleLinear()
         .domain(valueAxisDomain)
-        .range(valueAxisRange),
-      translate: { x: 0, y: viewPort.height - margin.bottom },
+        .range(valueAxisRange)
+        .nice(),
+      translate: {
+        x: 0,
+        y: viewport.height - margin.bottom,
+      },
+      tickCount: 3,
+      tickSize: -viewport.height - margin.top - margin.bottom,
     },
     categories: [
       {

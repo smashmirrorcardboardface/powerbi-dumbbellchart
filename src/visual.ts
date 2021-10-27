@@ -1,3 +1,28 @@
+/*
+ *  Power BI Visual CLI
+ *
+ *  Copyright (c) Microsoft Corporation
+ *  All rights reserved.
+ *  MIT License
+ *
+ *  Permission is hereby granted, free of charge, to any person obtaining a copy
+ *  of this software and associated documentation files (the ""Software""), to deal
+ *  in the Software without restriction, including without limitation the rights
+ *  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ *  copies of the Software, and to permit persons to whom the Software is
+ *  furnished to do so, subject to the following conditions:
+ *
+ *  The above copyright notice and this permission notice shall be included in
+ *  all copies or substantial portions of the Software.
+ *
+ *  THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ *  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ *  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ *  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ *  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ *  THE SOFTWARE.
+ */
 'use strict';
 
 import 'core-js/stable';
@@ -16,25 +41,29 @@ import * as d3Axis from 'd3-axis';
 
 import { VisualSettings } from './settings';
 import { mapViewModel } from './viewModel';
-import { map } from 'd3-collection';
 
 export class Visual implements IVisual {
+  // Visual's main (root) element
   private target: HTMLElement;
+  // SVG element for the entire chart; will be a child of the main visual element
   private chartContainer: d3.Selection<SVGElement, any, any, any>;
+  // SVG group element to consolidate the category axis elements
   private categoryAxisContainer: d3.Selection<SVGElement, any, any, any>;
+  // SVG group element to consolidate the value axis elements
   private valueAxisContainer: d3.Selection<SVGElement, any, any, any>;
+  // SVG group element to consolidate the visual data elements
   private plotContainer: d3.Selection<SVGElement, any, any, any>;
+  // Parsed visual settings
   private settings: VisualSettings;
 
   constructor(options: VisualConstructorOptions) {
     console.log('Visual constructor', options);
     this.target = options.element;
-
+    // Create our fixed elements, as these only need to be done once
     this.chartContainer = d3Select
       .select(this.target)
       .append('svg')
       .attr('id', 'dumbbellChartContainer');
-
     this.categoryAxisContainer = this.chartContainer
       .append('g')
       .classed('categoryAxis', true)
@@ -52,32 +81,39 @@ export class Visual implements IVisual {
     this.settings = Visual.parseSettings(
       options && options.dataViews && options.dataViews[0]
     );
-
     console.log('Visual update', options);
 
+    // The options.viewport object gives us the current visual's size, so we can assign this to
+    // our chart container to allow it to grow and shrink.
     this.chartContainer
       .attr('width', options.viewport.width)
       .attr('height', options.viewport.height);
 
+    // Map static data into our view model
     const viewModel = mapViewModel(this.settings, options.viewport);
 
+    // Call our axis functions in the appropriate containers
     this.categoryAxisContainer
       .attr(
         'transform',
         `translate(${viewModel.categoryAxis.translate.x}, ${viewModel.categoryAxis.translate.y})`
       )
-      .call(d3Axis.axisLeft(viewModel.categoryAxis.scale));
-
-    this.valueAxisContainer.selectAll('*').remove();
+      .call(d3Axis.axisLeft(viewModel.categoryAxis.scale) as any);
 
     this.valueAxisContainer
       .attr(
         'transform',
         `translate(${viewModel.valueAxis.translate.x}, ${viewModel.valueAxis.translate.y})`
       )
-      .call(d3Axis.axisBottom(viewModel.valueAxis.scale));
+      .call(
+        d3Axis
+          .axisBottom(viewModel.valueAxis.scale)
+          .ticks(viewModel.valueAxis.tickCount)
+          .tickSize(viewModel.valueAxis.tickSize) as any
+      );
 
-    console.log(viewModel);
+    // Inspect the view model in the browser console
+    console.log('viewmodel: - ', viewModel);
   }
 
   private static parseSettings(dataView: DataView): VisualSettings {
