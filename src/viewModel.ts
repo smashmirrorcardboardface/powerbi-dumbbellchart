@@ -74,11 +74,13 @@ interface IGroup {
 /**
  * Represents a visual category data item.
  */
-interface ICategory {
+export interface ICategory {
   // Name of category
   name: string;
   // Category group items
   groups: IGroup[];
+  min: number;
+  max: number;
 }
 
 /**
@@ -175,6 +177,8 @@ export function mapViewModel(
           { name: 'Group One', value: 6 },
           { name: 'Group Two', value: 14 },
         ],
+        min: 6,
+        max: 14,
       },
       {
         name: 'Category B',
@@ -182,6 +186,8 @@ export function mapViewModel(
           { name: 'Group One', value: 6 },
           { name: 'Group Two', value: 14 },
         ],
+        min: 6,
+        max: 14,
       },
       {
         name: 'Category C',
@@ -189,6 +195,8 @@ export function mapViewModel(
           { name: 'Group One', value: 20 },
           { name: 'Group Two', value: 12 },
         ],
+        min: 12,
+        max: 20,
       },
       {
         name: 'Category D',
@@ -196,6 +204,8 @@ export function mapViewModel(
           { name: 'Group One', value: 18 },
           { name: 'Group Two', value: 7 },
         ],
+        min: 7,
+        max: 18,
       },
     ],
     settings: settings,

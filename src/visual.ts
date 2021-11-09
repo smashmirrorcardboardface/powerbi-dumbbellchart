@@ -1,28 +1,3 @@
-/*
- *  Power BI Visual CLI
- *
- *  Copyright (c) Microsoft Corporation
- *  All rights reserved.
- *  MIT License
- *
- *  Permission is hereby granted, free of charge, to any person obtaining a copy
- *  of this software and associated documentation files (the ""Software""), to deal
- *  in the Software without restriction, including without limitation the rights
- *  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- *  copies of the Software, and to permit persons to whom the Software is
- *  furnished to do so, subject to the following conditions:
- *
- *  The above copyright notice and this permission notice shall be included in
- *  all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- *  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- *  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- *  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- *  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- *  THE SOFTWARE.
- */
 'use strict';
 
 import 'core-js/stable';
@@ -40,7 +15,7 @@ import * as d3Select from 'd3-selection';
 import * as d3Axis from 'd3-axis';
 
 import { VisualSettings } from './settings';
-import { mapViewModel } from './viewModel';
+import { mapViewModel, ICategory } from './viewModel';
 
 export class Visual implements IVisual {
   // Visual's main (root) element
@@ -112,8 +87,70 @@ export class Visual implements IVisual {
           .tickSize(viewModel.valueAxis.tickSize) as any
       );
 
-    // Inspect the view model in the browser console
-    console.log('viewmodel: - ', viewModel);
+    const categories = this.plotContainer
+      .selectAll('.category')
+      .data(viewModel.categories)
+      .join(
+        (enter) => {
+          const group = enter
+            .append('g')
+            .classed('category', true)
+            .call(this.transformCategoryGroup, viewModel.categoryAxis.scale);
+
+          const midpoint = viewModel.categoryAxis.scale.bandwidth() / 2;
+
+          group
+            .append('line')
+            .classed('dumbbellLine', true)
+            .call(
+              this.transformDumbellLine,
+              viewModel.categoryAxis.scale,
+              viewModel.valueAxis.scale
+            );
+
+          return group;
+        },
+        (update) => {
+          update.call(
+            this.transformCategoryGroup,
+            viewModel.categoryAxis.scale
+          );
+          update
+            .select('.dumbellLine')
+            .call(
+              this.transformDumbellLine,
+              viewModel.categoryAxis.scale,
+              viewModel.valueAxis.scale
+            );
+          return update;
+        },
+        (exit) => {
+          exit.remove();
+        }
+      );
+
+    console // Inspect the view model in the browser console
+      .log('viewmodel: - ', viewModel);
+  }
+
+  private transformCategoryGroup(
+    selection: d3.Selection<SVGElement, ICategory, any, any>,
+    scale: d3.ScaleBand<string>
+  ) {
+    selection.attr('transform', (d) => `translate(0, ${scale(d.name)})`);
+  }
+
+  private transformDumbellLine(
+    selection: d3.Selection<SVGElement, ICategory, any, any>,
+    categoryScale: d3.ScaleBand<string>,
+    valueScale: d3.ScaleLinear<number, number>
+  ) {
+    const midpoint = categoryScale.bandwidth() / 2;
+    selection
+      .attr('x1', (d) => valueScale(d.min))
+      .attr('x2', (d) => valueScale(d.max))
+      .attr('y1', midpoint)
+      .attr('y2', midpoint);
   }
 
   private static parseSettings(dataView: DataView): VisualSettings {
