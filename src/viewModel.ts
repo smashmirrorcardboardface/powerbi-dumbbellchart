@@ -1,5 +1,7 @@
 import powerbi from 'powerbi-visuals-api';
 import IViewport = powerbi.IViewport;
+import DataView = powerbi.DataView;
+import IVisualHost = powerbi.extensibility.visual.IVisualHost;
 
 import { VisualSettings } from './settings';
 
@@ -64,11 +66,12 @@ interface IMargin {
 /**
  * Represents a data point within a visual category.
  */
-interface IGroup {
+export interface IGroup {
   // Name of group
   name: string;
   // Data point value
   value: number;
+  colour: string;
 }
 
 /**
@@ -97,36 +100,117 @@ interface IViewModel {
   categoryAxis: ICategoryAxis;
   // Value axis information
   valueAxis: IValueAxis;
+  //min and max values for the visual
+  minValue: number;
+  maxValue: number;
 }
 
-/**
- * Create a view model of static data we can use to prototype our visual's look.
- *
- * @param settings  - parsed visual settings.
- */
-export function mapViewModel(
-  settings: VisualSettings,
-  viewport: IViewport
-): IViewModel {
-  // Assign our margin values so we can re-use them more easily
-  const margin = {
-    top: 10,
-    right: 10,
-    bottom: 25,
-    left: 75,
+export function isDataViewValid(dataView: DataView): boolean {
+  if (
+    dataView &&
+    dataView.categorical &&
+    dataView.categorical.categories &&
+    dataView.categorical.categories.length === 1 &&
+    dataView.categorical.values &&
+    dataView.categorical.values.length > 0
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function getNewViewModel(settings?: VisualSettings): IViewModel {
+  return {
+    margin: {
+      top: 10,
+      right: 10,
+      bottom: 10,
+      left: 10,
+    },
+    categories: [],
+    settings: settings,
+    categoryAxis: null,
+    valueAxis: null,
+    minValue: 0,
+    maxValue: 0,
   };
+}
+
+export function mapViewModel(
+  dataView: DataView,
+  settings: VisualSettings,
+  viewport: IViewport,
+  host: IVisualHost
+): IViewModel {
+  //declare empty view model
+  const viewModel: IViewModel = getNewViewModel(settings);
+
+  if (!isDataViewValid(dataView)) return viewModel;
+
+  // Assign our margin values so we can re-use them more easily
+  viewModel.margin.bottom = 25;
+  viewModel.margin.left = 75;
+
+  const margin = viewModel.margin;
+
+  let datasetMinValue: number;
+  let datasetMaxValue: number;
+
+  const categoryColumn = dataView.categorical.categories[0];
+
+  const valueGroupings = dataView.categorical.values;
+
+  categoryColumn.values.forEach((cv, ci) => {
+    const categoryName = <string>cv;
+
+    let categoryMinValue: number;
+    let categoryMaxValue: number;
+
+    const groups: IGroup[] = valueGroupings.map((g, gi) => {
+      const groupName = <string>g.source.groupName;
+      const groupValue = <number>g.values[ci];
+
+      categoryMinValue = Math.min(categoryMinValue || groupValue, groupValue);
+      categoryMaxValue = Math.max(categoryMaxValue || groupValue, groupValue);
+
+      // resolve colour for theme
+      const colour = host.colorPalette.getColor(groupName).value;
+
+      return {
+        name: groupName,
+        value: groupValue,
+        colour: colour,
+      };
+    });
+
+    viewModel.minValue = datasetMinValue;
+    viewModel.maxValue = datasetMaxValue;
+
+    //resolve dataset min/max
+    datasetMinValue = Math.min(
+      datasetMinValue || categoryMinValue,
+      categoryMinValue
+    );
+    datasetMaxValue = Math.max(
+      datasetMaxValue || categoryMaxValue,
+      categoryMaxValue
+    );
+
+    //push category object into the view model
+    viewModel.categories.push({
+      name: categoryName,
+      groups: groups,
+      min: categoryMinValue,
+      max: categoryMaxValue,
+    });
+  });
 
   // Value axis domain (min/max)
-  const valueAxisDomain: [number, number] = [6, 20];
+  const valueAxisDomain: [number, number] = [datasetMinValue, datasetMaxValue];
 
   // Category axis domain (unique values)
-  const categoryAxisDomain = [
-    'Category A',
-    'Category B',
-    'Category C',
-    'Category D',
-  ];
-
+  const categoryAxisDomain = viewModel.categories.map((c) => c.name);
   // Derived range for the value axis, based on margin values
   const valueAxisRange: [number, number] = [
     margin.left,
@@ -139,75 +223,40 @@ export function mapViewModel(
     viewport.height - margin.bottom,
   ];
 
-  // View model
-  return {
-    margin: margin,
-    categoryAxis: {
-      range: categoryAxisRange,
-      domain: categoryAxisDomain,
-      scale: d3Scale
-        .scaleBand()
-        .domain(categoryAxisDomain)
-        .range(categoryAxisRange)
-        .padding(0.2),
-      translate: {
-        x: margin.left,
-        y: 0,
-      },
+  const valueAxisTickCount = 3;
+
+  // Create the category axis scale
+  viewModel.categoryAxis = {
+    range: categoryAxisRange,
+    domain: categoryAxisDomain,
+    scale: d3Scale
+      .scaleBand()
+      .domain(categoryAxisDomain)
+      .range(categoryAxisRange)
+      .padding(0.2),
+    translate: {
+      x: margin.left,
+      y: 0,
     },
-    valueAxis: {
-      range: valueAxisRange,
-      domain: valueAxisDomain,
-      scale: d3Scale
-        .scaleLinear()
-        .domain(valueAxisDomain)
-        .range(valueAxisRange)
-        .nice(),
-      translate: {
-        x: 0,
-        y: viewport.height - margin.bottom,
-      },
-      tickCount: 3,
-      tickSize: -viewport.height - margin.top - margin.bottom,
-    },
-    categories: [
-      {
-        name: 'Category A',
-        groups: [
-          { name: 'Group One', value: 6 },
-          { name: 'Group Two', value: 14 },
-        ],
-        min: 6,
-        max: 14,
-      },
-      {
-        name: 'Category B',
-        groups: [
-          { name: 'Group One', value: 6 },
-          { name: 'Group Two', value: 14 },
-        ],
-        min: 6,
-        max: 14,
-      },
-      {
-        name: 'Category C',
-        groups: [
-          { name: 'Group One', value: 20 },
-          { name: 'Group Two', value: 12 },
-        ],
-        min: 12,
-        max: 20,
-      },
-      {
-        name: 'Category D',
-        groups: [
-          { name: 'Group One', value: 18 },
-          { name: 'Group Two', value: 7 },
-        ],
-        min: 7,
-        max: 18,
-      },
-    ],
-    settings: settings,
   };
+
+  // Create the value axis scale
+  viewModel.valueAxis = {
+    range: valueAxisRange,
+    domain: valueAxisDomain,
+    scale: d3Scale
+      .scaleLinear()
+      .domain(valueAxisDomain)
+      .range(valueAxisRange)
+      .nice(valueAxisTickCount),
+    translate: {
+      x: 0,
+      y: viewport.height - margin.bottom,
+    },
+    tickCount: valueAxisTickCount,
+    tickSize: -viewport.height - margin.top - margin.bottom,
+  };
+
+  // View model
+  return viewModel;
 }

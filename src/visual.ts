@@ -10,12 +10,13 @@ import EnumerateVisualObjectInstancesOptions = powerbi.EnumerateVisualObjectInst
 import VisualObjectInstance = powerbi.VisualObjectInstance;
 import DataView = powerbi.DataView;
 import VisualObjectInstanceEnumerationObject = powerbi.VisualObjectInstanceEnumerationObject;
+import IVisualHost = powerbi.extensibility.visual.IVisualHost;
 
 import * as d3Select from 'd3-selection';
 import * as d3Axis from 'd3-axis';
 
-import { VisualSettings } from './settings';
-import { mapViewModel, ICategory } from './viewModel';
+import { VisualSettings, ConnectingLinesSettings } from './settings';
+import { isDataViewValid, mapViewModel, ICategory, IGroup } from './viewModel';
 
 export class Visual implements IVisual {
   // Visual's main (root) element
@@ -30,10 +31,13 @@ export class Visual implements IVisual {
   private plotContainer: d3.Selection<SVGElement, any, any, any>;
   // Parsed visual settings
   private settings: VisualSettings;
+  // visual host methods
+  private host: IVisualHost;
 
   constructor(options: VisualConstructorOptions) {
     console.log('Visual constructor', options);
     this.target = options.element;
+    this.host = options.host;
     // Create our fixed elements, as these only need to be done once
     this.chartContainer = d3Select
       .select(this.target)
@@ -53,104 +57,213 @@ export class Visual implements IVisual {
   }
 
   public update(options: VisualUpdateOptions) {
-    this.settings = Visual.parseSettings(
-      options && options.dataViews && options.dataViews[0]
-    );
     console.log('Visual update', options);
 
-    // The options.viewport object gives us the current visual's size, so we can assign this to
-    // our chart container to allow it to grow and shrink.
-    this.chartContainer
-      .attr('width', options.viewport.width)
-      .attr('height', options.viewport.height);
+    try {
+      const dataView = options && options.dataViews && options.dataViews[0];
 
-    // Map static data into our view model
-    const viewModel = mapViewModel(this.settings, options.viewport);
+      this.settings = Visual.parseSettings(dataView);
+      const dataViewIsValid = isDataViewValid(dataView);
 
-    // Call our axis functions in the appropriate containers
-    this.categoryAxisContainer
-      .attr(
-        'transform',
-        `translate(${viewModel.categoryAxis.translate.x}, ${viewModel.categoryAxis.translate.y})`
-      )
-      .call(d3Axis.axisLeft(viewModel.categoryAxis.scale) as any);
+      // The options.viewport object gives us the current visual's size, so we can assign this to
+      // our chart container to allow it to grow and shrink.
+      this.chartContainer
+        .attr('width', options.viewport.width)
+        .attr('height', options.viewport.height);
 
-    this.valueAxisContainer
-      .attr(
-        'transform',
-        `translate(${viewModel.valueAxis.translate.x}, ${viewModel.valueAxis.translate.y})`
-      )
-      .call(
-        d3Axis
-          .axisBottom(viewModel.valueAxis.scale)
-          .ticks(viewModel.valueAxis.tickCount)
-          .tickSize(viewModel.valueAxis.tickSize) as any
-      );
+      // If the data view is invalid, we'll just return early and not draw anything
+      if (!dataViewIsValid) {
+        this.plotContainer.selectAll('*').remove();
+        this.categoryAxisContainer.selectAll('*').remove();
+        this.valueAxisContainer.selectAll('*').remove();
+      } else {
+        // Map static data into our view model
+        const viewModel = mapViewModel(
+          dataView,
+          this.settings,
+          options.viewport,
+          this.host
+        );
 
-    const categories = this.plotContainer
-      .selectAll('.category')
-      .data(viewModel.categories)
-      .join(
-        (enter) => {
-          const group = enter
-            .append('g')
-            .classed('category', true)
-            .call(this.transformCategoryGroup, viewModel.categoryAxis.scale);
+        // Call our axis functions in the appropriate containers
+        this.categoryAxisContainer
+          .attr(
+            'transform',
+            `translate(${viewModel.categoryAxis.translate.x}, ${viewModel.categoryAxis.translate.y})`
+          )
+          .call(d3Axis.axisLeft(viewModel.categoryAxis.scale) as any);
 
-          const midpoint = viewModel.categoryAxis.scale.bandwidth() / 2;
-
-          group
-            .append('line')
-            .classed('dumbbellLine', true)
-            .call(
-              this.transformDumbellLine,
-              viewModel.categoryAxis.scale,
-              viewModel.valueAxis.scale
-            );
-
-          return group;
-        },
-        (update) => {
-          update.call(
-            this.transformCategoryGroup,
-            viewModel.categoryAxis.scale
+        this.valueAxisContainer
+          .attr(
+            'transform',
+            `translate(${viewModel.valueAxis.translate.x}, ${viewModel.valueAxis.translate.y})`
+          )
+          .call(
+            d3Axis
+              .axisBottom(viewModel.valueAxis.scale)
+              .ticks(viewModel.valueAxis.tickCount)
+              .tickSize(viewModel.valueAxis.tickSize) as any
           );
-          update
-            .select('.dumbellLine')
-            .call(
-              this.transformDumbellLine,
-              viewModel.categoryAxis.scale,
-              viewModel.valueAxis.scale
-            );
-          return update;
-        },
-        (exit) => {
-          exit.remove();
-        }
-      );
 
-    console // Inspect the view model in the browser console
-      .log('viewmodel: - ', viewModel);
+        // Create an array of SVG group (g) elements and bind an `ICategory` to each; move it to the correct position on the axis
+        const categories = this.plotContainer
+          .selectAll('.category')
+          .data(viewModel.categories)
+          .join(
+            (enter) => {
+              // Create grouping element
+              const group = enter
+                .append('g')
+                .classed('category', true)
+                .call(
+                  this.transformCategoryGroup,
+                  viewModel.categoryAxis.scale
+                );
+
+              // Add line
+              group
+                .append('line')
+                .classed('dumbbellLine', true)
+                .call(
+                  this.transformDumbbellLine,
+                  viewModel.categoryAxis.scale,
+                  viewModel.valueAxis.scale,
+                  this.settings.connectingLines
+                );
+
+              // circles
+              group
+                .selectAll('.dumbbellPoint')
+                .data((d) => d.groups)
+                .join('circle')
+                .classed('dumbbellPoint', true)
+                .call(
+                  this.transformDumbbellCircle,
+                  viewModel.categoryAxis.scale,
+                  viewModel.valueAxis.scale,
+                  this.settings.dataPoints.radius
+                );
+
+              // Add labels
+              group
+                .filter((d, di) => di === 0)
+                .selectAll('.dataLabel')
+                .data((d) => d.groups)
+                .join('text')
+                .classed('dataLabel', true)
+                .call(
+                  this.transformDataLabel,
+                  viewModel.valueAxis.scale,
+                  this.settings.dataLabels.show
+                );
+
+              // Group element is used for any further operations
+              return group;
+            },
+            (update) => {
+              // Re-position groups
+              update.call(
+                this.transformCategoryGroup,
+                viewModel.categoryAxis.scale
+              );
+
+              // Re-position line coordinates
+              update
+                .select('.dumbbellLine')
+                .call(
+                  this.transformDumbbellLine,
+                  viewModel.categoryAxis.scale,
+                  viewModel.valueAxis.scale,
+                  this.settings.connectingLines
+                );
+
+              // Re-position circles
+              update
+                .selectAll('.dumbbellPoint')
+                .call(
+                  this.transformDumbbellCircle,
+                  viewModel.categoryAxis.scale,
+                  viewModel.valueAxis.scale,
+                  this.settings.dataPoints.radius
+                );
+
+              // Re-position labels
+              update
+                .selectAll('.dataLabel')
+                .call(
+                  this.transformDataLabel,
+                  viewModel.valueAxis.scale,
+                  this.settings.dataLabels.show
+                );
+
+              // Group element is used for any further operations
+              return update;
+            },
+            (exit) => {
+              exit.remove();
+            }
+          );
+
+        // Inspect the view model in the browser console
+        console.log(viewModel);
+      }
+    } catch (e) {
+      console.log(e);
+      debugger;
+    }
   }
 
   private transformCategoryGroup(
-    selection: d3.Selection<SVGElement, ICategory, any, any>,
-    scale: d3.ScaleBand<string>
+    selection: d3.Selection<SVGGElement, ICategory, any, any>,
+    categoryScale: d3.ScaleBand<string>
   ) {
-    selection.attr('transform', (d) => `translate(0, ${scale(d.name)})`);
+    selection.attr(
+      'transform',
+      (d) => `translate(0, ${categoryScale(d.name)})`
+    );
   }
 
-  private transformDumbellLine(
-    selection: d3.Selection<SVGElement, ICategory, any, any>,
+  private transformDumbbellLine(
+    selection: d3.Selection<SVGLineElement, ICategory, any, any>,
     categoryScale: d3.ScaleBand<string>,
-    valueScale: d3.ScaleLinear<number, number>
+    valueScale: d3.ScaleLinear<number, number>,
+    settings: ConnectingLinesSettings
   ) {
     const midpoint = categoryScale.bandwidth() / 2;
     selection
       .attr('x1', (d) => valueScale(d.min))
       .attr('x2', (d) => valueScale(d.max))
       .attr('y1', midpoint)
-      .attr('y2', midpoint);
+      .attr('y2', midpoint)
+      .attr('stroke-width', settings.strokeWidth)
+      .attr('stroke', settings.colour);
+  }
+
+  private transformDumbbellCircle(
+    selection: d3.Selection<SVGCircleElement, IGroup, any, any>,
+    categoryScale: d3.ScaleBand<string>,
+    valueScale: d3.ScaleLinear<number, number>,
+    radius: number
+  ) {
+    const midpoint = categoryScale.bandwidth() / 2;
+    selection
+      .attr('cx', (d) => valueScale(d.value))
+      .attr('cy', midpoint)
+      .attr('r', radius)
+      .attr('fill', (d) => d.colour);
+  }
+
+  private transformDataLabel(
+    selection: d3.Selection<SVGTextElement, IGroup, any, any>,
+    valueScale: d3.ScaleLinear<number, number>,
+    show: boolean
+  ) {
+    selection
+      .attr('x', (d) => valueScale(d.value))
+      .attr('y', 0)
+      .attr('fill', (d) => d.colour)
+      .text((d) => d.name)
+      .style('visibility', show ? 'visible' : 'hidden');
   }
 
   private static parseSettings(dataView: DataView): VisualSettings {

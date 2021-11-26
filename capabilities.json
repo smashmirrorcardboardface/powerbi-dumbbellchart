@@ -1,22 +1,52 @@
 {
     "dataRoles": [
         {
-            "displayName": "Category Data",
+            "displayName": "Category",
             "name": "category",
             "kind": "Grouping"
         },
         {
-            "displayName": "Measure Data",
+            "displayName": "Series",
+            "name": "series",
+            "kind": "Grouping"
+        },
+        {
+            "displayName": "Measure",
             "name": "measure",
-            "kind": "Measure"
+            "kind": "Measure",
+            "requiredTypes": [
+                {
+                    "numeric": true
+                },
+                {
+                    "integer": true
+                }
+            ]
         }
     ],
     "objects": {
-        "dataPoint": {
-            "displayName": "Data colors",
+        "dataPoints": {
+            "displayName": "Data Points",
             "properties": {
-                "defaultColor": {
-                    "displayName": "Default color",
+                "radius": {
+                    "displayName": "Radius",
+                    "type": {
+                        "numeric": true
+                    }
+                }
+            }
+        },
+        "connectingLines": {
+            "displayName": "Connecting Lines",
+            "properties": {
+                "strokeWidth": {
+                    "displayName": "Stroke Width",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "colour": {
+                    "displayName": "Colour",
                     "type": {
                         "fill": {
                             "solid": {
@@ -24,35 +54,16 @@
                             }
                         }
                     }
-                },
-                "showAllDataPoints": {
-                    "displayName": "Show all",
+                }
+            }
+        },
+        "dataLabels": {
+            "displayName": "Data Labels",
+            "properties": {
+                "show": {
+                    "displayName": "Show",
                     "type": {
                         "bool": true
-                    }
-                },
-                "fill": {
-                    "displayName": "Fill",
-                    "type": {
-                        "fill": {
-                            "solid": {
-                                "color": true
-                            }
-                        }
-                    }
-                },
-                "fillRule": {
-                    "displayName": "Color saturation",
-                    "type": {
-                        "fill": {}
-                    }
-                },
-                 "fontSize": {
-                    "displayName": "Text Size",
-                    "type": {
-                        "formatting": {
-                            "fontSize": true
-                        }
                     }
                 }
             }
@@ -60,6 +71,19 @@
     },
     "dataViewMappings": [
         {
+            "conditions": [
+                {
+                    "category": {
+                        "max": 1
+                    },
+                    "series": {
+                        "max": 1
+                    },
+                    "measure": {
+                        "max": 1
+                    }
+                }
+            ],
             "categorical": {
                 "categories": {
                     "for": {
@@ -70,13 +94,16 @@
                     }
                 },
                 "values": {
-                    "select": [
-                        {
-                            "bind": {
-                                "to": "measure"
+                    "group": {
+                        "by": "series",
+                        "select": [
+                            {
+                                "bind": {
+                                    "to": "measure"
+                                }
                             }
-                        }
-                    ]
+                        ]
+                    }
                 }
             }
         }
