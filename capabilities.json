@@ -40,13 +40,13 @@
             "displayName": "Connecting Lines",
             "properties": {
                 "strokeWidth": {
-                    "displayName": "Stroke Width",
+                    "displayName": "Width",
                     "type": {
                         "numeric": true
                     }
                 },
-                "colour": {
-                    "displayName": "Colour",
+                "color": {
+                    "displayName": "Color",
                     "type": {
                         "fill": {
                             "solid": {
@@ -61,7 +61,6 @@
             "displayName": "Data Labels",
             "properties": {
                 "show": {
-                    "displayName": "Show",
                     "type": {
                         "bool": true
                     }

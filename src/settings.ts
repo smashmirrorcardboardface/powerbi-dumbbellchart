@@ -41,7 +41,7 @@ export class DataPointsSettings {
 
 export class ConnectingLinesSettings {
   strokeWidth: number = 2;
-  colour: string = '#000000';
+  color: string = '#000000';
 }
 
 export class DataLabelsSettings {

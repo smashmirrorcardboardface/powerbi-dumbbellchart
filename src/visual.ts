@@ -1,5 +1,3 @@
-'use strict';
-
 import 'core-js/stable';
 import './../style/visual.less';
 import powerbi from 'powerbi-visuals-api';
@@ -31,13 +29,14 @@ export class Visual implements IVisual {
   private plotContainer: d3.Selection<SVGElement, any, any, any>;
   // Parsed visual settings
   private settings: VisualSettings;
-  // visual host methods
+  // Developer visual host services
   private host: IVisualHost;
 
   constructor(options: VisualConstructorOptions) {
     console.log('Visual constructor', options);
     this.target = options.element;
     this.host = options.host;
+
     // Create our fixed elements, as these only need to be done once
     this.chartContainer = d3Select
       .select(this.target)
@@ -60,9 +59,13 @@ export class Visual implements IVisual {
     console.log('Visual update', options);
 
     try {
+      // Declare data view for re-use
       const dataView = options && options.dataViews && options.dataViews[0];
 
+      // Parse data view into settings
       this.settings = Visual.parseSettings(dataView);
+
+      // Check that our dataView is valid for our visual's requirements
       const dataViewIsValid = isDataViewValid(dataView);
 
       // The options.viewport object gives us the current visual's size, so we can assign this to
@@ -71,8 +74,9 @@ export class Visual implements IVisual {
         .attr('width', options.viewport.width)
         .attr('height', options.viewport.height);
 
-      // If the data view is invalid, we'll just return early and not draw anything
+      // Ensure our visual responds appropriately for the user if the data view isn't valid
       if (!dataViewIsValid) {
+        // Clear down any existing plotted SVG as it's no longer correct
         this.plotContainer.selectAll('*').remove();
         this.categoryAxisContainer.selectAll('*').remove();
         this.valueAxisContainer.selectAll('*').remove();
@@ -131,7 +135,7 @@ export class Visual implements IVisual {
                   this.settings.connectingLines
                 );
 
-              // circles
+              // Add circles for data points
               group
                 .selectAll('.dumbbellPoint')
                 .data((d) => d.groups)
@@ -144,7 +148,7 @@ export class Visual implements IVisual {
                   this.settings.dataPoints.radius
                 );
 
-              // Add labels
+              // Add data labels for first category
               group
                 .filter((d, di) => di === 0)
                 .selectAll('.dataLabel')
@@ -177,9 +181,12 @@ export class Visual implements IVisual {
                   this.settings.connectingLines
                 );
 
-              // Re-position circles
+              // Re-position circle coordinates
               update
                 .selectAll('.dumbbellPoint')
+                .data((d) => d.groups)
+                .join('circle')
+                .classed('dumbbellPoint', true)
                 .call(
                   this.transformDumbbellCircle,
                   viewModel.categoryAxis.scale,
@@ -187,9 +194,13 @@ export class Visual implements IVisual {
                   this.settings.dataPoints.radius
                 );
 
-              // Re-position labels
+              // Re-position data labels
               update
+                .filter((d, di) => di === 0)
                 .selectAll('.dataLabel')
+                .data((d) => d.groups)
+                .join('text')
+                .classed('dataLabel', true)
                 .call(
                   this.transformDataLabel,
                   viewModel.valueAxis.scale,
@@ -208,11 +219,17 @@ export class Visual implements IVisual {
         console.log(viewModel);
       }
     } catch (e) {
-      console.log(e);
+      console.log('Error!', e);
       debugger;
     }
   }
 
+  /**
+   * Consolidates logic to handle positioning and attributes of category groups for enter and update
+   *
+   * @param selection     - D3 selection (group) to apply transformation to
+   * @param categoryScale - category scale object to use for positioning
+   */
   private transformCategoryGroup(
     selection: d3.Selection<SVGGElement, ICategory, any, any>,
     categoryScale: d3.ScaleBand<string>
@@ -223,6 +240,14 @@ export class Visual implements IVisual {
     );
   }
 
+  /**
+   * Consolidates logic to handle positioning and attributes of the dumbbell line element within a category
+   *
+   * @param selection     - D3 selection (line) to apply transformation to
+   * @param categoryScale - category scale object to use for positioning
+   * @param valueScale    - value scale object to use for plotting by measure value
+   * @param settings      - parsed connecting line settings from dataView
+   */
   private transformDumbbellLine(
     selection: d3.Selection<SVGLineElement, ICategory, any, any>,
     categoryScale: d3.ScaleBand<string>,
@@ -235,10 +260,18 @@ export class Visual implements IVisual {
       .attr('x2', (d) => valueScale(d.max))
       .attr('y1', midpoint)
       .attr('y2', midpoint)
-      .attr('stroke-width', settings.strokeWidth)
-      .attr('stroke', settings.colour);
+      .style('stroke-width', settings.strokeWidth)
+      .style('stroke', settings.color);
   }
 
+  /**
+   * Consolidates logic to handle positioning and attributes of the dumbbell circle elements within a category
+   *
+   * @param selection     - D3 selection (circle) to apply transformation to
+   * @param categoryScale - category scale object to use for positioning
+   * @param valueScale    - value scale object to use for plotting by measure value
+   * @param radius        - circle radius, in px
+   */
   private transformDumbbellCircle(
     selection: d3.Selection<SVGCircleElement, IGroup, any, any>,
     categoryScale: d3.ScaleBand<string>,
@@ -250,9 +283,16 @@ export class Visual implements IVisual {
       .attr('cx', (d) => valueScale(d.value))
       .attr('cy', midpoint)
       .attr('r', radius)
-      .attr('fill', (d) => d.colour);
+      .attr('fill', (d) => d.color);
   }
 
+  /**
+   * Consolidates logic to handle positioning and attributes of the data label text elements within a category
+   *
+   * @param selection     - D3 selection (circle) to apply transformation to
+   * @param valueScale    - value scale object to use for plotting by measure value
+   * @param show          - whether to show labels or not
+   */
   private transformDataLabel(
     selection: d3.Selection<SVGTextElement, IGroup, any, any>,
     valueScale: d3.ScaleLinear<number, number>,
@@ -261,7 +301,7 @@ export class Visual implements IVisual {
     selection
       .attr('x', (d) => valueScale(d.value))
       .attr('y', 0)
-      .attr('fill', (d) => d.colour)
+      .attr('fill', (d) => d.color)
       .text((d) => d.name)
       .style('visibility', show ? 'visible' : 'hidden');
   }
