@@ -92,7 +92,8 @@ export interface ICategory {
 /**
  * Visual view model.
  */
-interface IViewModel {
+export interface IViewModel {
+  isValid: boolean;
   // Visual margin values
   margin: IMargin;
   // Visual category data items
@@ -109,202 +110,204 @@ interface IViewModel {
   maxValue: number;
 }
 
-/**
- * Test the supplied data view to ensure that it's valid for our visual's view model logic.
- *
- * @param dataView  - dataView from update options
- */
-export function isDataViewValid(dataView: DataView): boolean {
-  if (
-    dataView &&
-    dataView.categorical &&
-    dataView.categorical.categories &&
-    dataView.categorical.categories.length === 1 &&
-    dataView.categorical.values &&
-    dataView.categorical.values.length > 0
-  ) {
-    return true;
+export class ViewModelManager {
+  // Visual view model
+  viewModel: IViewModel = this.getNewViewModel();
+  // visual services host
+  private host: IVisualHost;
+
+  constructor(host: IVisualHost) {
+    this.host = host;
   }
-  return false;
-}
 
-/**
- * Creates an 'empty' viewModel, essentially resetting it.
- *
- * @param settings  - parsed visual settings
- */
-function getNewViewModel(settings?: VisualSettings): IViewModel {
-  return {
-    margin: {
-      top: 10,
-      right: 10,
-      bottom: 10,
-      left: 10,
-    },
-    categories: [],
-    settings: settings,
-    categoryAxis: null,
-    valueAxis: null,
-    minValue: 0,
-    maxValue: 0,
-  };
-}
+  mapDataView(dataView: DataView, settings: VisualSettings) {
+    const viewModel = this.getNewViewModel(settings);
 
-/**
- * Create a view model of static data we can use to prototype our visual's look.
- *
- * @param dataView  - dataView from update options
- * @param settings  - parsed visual settings
- * @param viewport  - viewport (width/height) to constrain visual to
- * @param host      - developer visual host services
- */
-export function mapViewModel(
-  dataView: DataView,
-  settings: VisualSettings,
-  viewport: IViewport,
-  host: IVisualHost
-): IViewModel {
-  // Declare empty viewModel
-  const viewModel = getNewViewModel(settings);
+    viewModel.isValid = this.viewModel.isValid = this.isDataViewValid(dataView);
+    if (!viewModel.isValid) return;
 
-  // For safety's sake, handle the situation where we might not have validated beforehand, so
-  // that any calling function gets an empty view model and can fail gracefully.
-  if (!isDataViewValid(dataView)) return viewModel;
+    // We need to get the min/max extents of all values in the supplied data. We'll instantiate two variables
+    // here to track this and as we encounter values, we can replace them with new values if they fall outside
+    // the current ranges. These are undefined so that we can deal with minimum values in the data that are
+    // over zero.
+    let datasetMinValue: number, datasetMaxValue: number;
 
-  // Assign our margin values so we can re-use them more easily
-  viewModel.margin.bottom = 25;
-  viewModel.margin.left = 130;
-  viewModel.margin.right = 30;
-  const margin = viewModel.margin;
+    // Obtain the category column metadata (incl. data values)
+    const categoryColumn = dataView.categorical.categories[0];
 
-  // We need to get the min/max extents of all values in the supplied data. We'll instantiate two variables
-  // here to track this and as we encounter values, we can replace them with new values if they fall outside
-  // the current ranges. These are undefined so that we can deal with minimum values in the data that are
-  // over zero.
-  let datasetMinValue: number, datasetMaxValue: number;
+    // Obtain the value groupings (incl. all values)
+    const valueGroupings = dataView.categorical.values;
 
-  // Obtain the category column metadata (incl. data values)
-  const categoryColumn = dataView.categorical.categories[0];
+    // Traverse the data view and map.
+    // For each category value, we can use its index to access its corresponding value in each array of values
+    // in each categorical.values grouping and bring it in.
+    categoryColumn.values.forEach((cv, ci) => {
+      // We could do this more optimially but breaking into steps for learning purposes.
 
-  // Obtain the value groupings (incl. all values)
-  const valueGroupings = dataView.categorical.values;
+      // Category name from current array value. The type is a powerbi.PrimitiveValue, which needs to
+      // be cast to string to fit our view model spec.
+      const categoryName = <string>cv;
 
-  // Traverse the data view and map.
-  // For each category value, we can use its index to access its corresponding value in each array of values
-  // in each categorical.values grouping and bring it in.
-  categoryColumn.values.forEach((cv, ci) => {
-    // We could do this more optimially but breaking into steps for learning purposes.
+      // We need to get the min/max extents of the group values for the category, so we can track this
+      // using variables in this part of the mapping process and will reset when we hit the next category.
+      let categoryMinValue: number, categoryMaxValue: number;
 
-    // Category name from current array value. The type is a powerbi.PrimitiveValue, which needs to
-    // be cast to string to fit our view model spec.
-    const categoryName = <string>cv;
+      // The number of entries in the categorical.values array denotes how many groups we have in each
+      // category, so we can iterate over these too and use the category index from the outer foreach
+      // to access the correct measure value from each group's values array.
+      const groups: IGroup[] = valueGroupings.map((g, gi) => {
+        // Get group name
+        const groupName = <string>g.source.groupName;
 
-    // We need to get the min/max extents of the group values for the category, so we can track this
-    // using variables in this part of the mapping process and will reset when we hit the next category.
-    let categoryMinValue: number, categoryMaxValue: number;
+        // Get current value. Similar to category, it needs to be type-cast. As we have restricted
+        // valid data types in our data roles, we know it's safe to cast it to a number.
+        const groupValue = <number>g.values[ci];
 
-    // The number of entries in the categorical.values array denotes how many groups we have in each
-    // category, so we can iterate over these too and use the category index from the outer foreach
-    // to access the correct measure value from each group's values array.
-    const groups: IGroup[] = valueGroupings.map((g, gi) => {
-      // Get group name
-      const groupName = <string>g.source.groupName;
+        // Set group min/max to measure value if it's at the extremes
+        categoryMinValue = Math.min(categoryMinValue || groupValue, groupValue);
+        categoryMaxValue = Math.max(categoryMaxValue || groupValue, groupValue);
 
-      // Get current value. Similar to category, it needs to be type-cast. As we have restricted
-      // valid data types in our data roles, we know it's safe to cast it to a number.
-      const groupValue = <number>g.values[ci];
+        // Resolve colour from theme for this group name
+        const color = this.host.colorPalette.getColor(groupName).value;
 
-      // Set group min/max to measure value if it's at the extremes
-      categoryMinValue = Math.min(categoryMinValue || groupValue, groupValue);
-      categoryMaxValue = Math.max(categoryMaxValue || groupValue, groupValue);
+        // Return a valid IGroup for this iteration.
+        return {
+          name: groupName,
+          value: groupValue,
+          color: color,
+        };
+      });
 
-      // Resolve colour from theme for this group name
-      const color = host.colorPalette.getColor(groupName).value;
+      // Resolve dataset min/max based on discovered group min/max
+      datasetMinValue = Math.min(
+        datasetMinValue || categoryMinValue,
+        categoryMinValue
+      );
+      datasetMaxValue = Math.max(
+        datasetMaxValue || categoryMaxValue,
+        categoryMaxValue
+      );
 
-      // Return a valid IGroup for this iteration.
-      return {
-        name: groupName,
-        value: groupValue,
-        color: color,
-      };
+      // Push the category object into the view model's categories array with the correct properties.
+      viewModel.categories.push({
+        name: categoryName,
+        groups: groups,
+        min: categoryMinValue,
+        max: categoryMaxValue,
+      });
     });
 
-    // Resolve dataset min/max based on discovered group min/max
-    datasetMinValue = Math.min(
-      datasetMinValue || categoryMinValue,
-      categoryMinValue
-    );
-    datasetMaxValue = Math.max(
-      datasetMaxValue || categoryMaxValue,
-      categoryMaxValue
-    );
+    // Update the dataset min and max values
+    viewModel.minValue = datasetMinValue;
+    viewModel.maxValue = datasetMaxValue;
 
-    // Push the category object into the view model's categories array with the correct properties.
-    viewModel.categories.push({
-      name: categoryName,
-      groups: groups,
-      min: categoryMinValue,
-      max: categoryMaxValue,
-    });
-  });
+    // Update the view model
+    this.viewModel = viewModel;
+  }
 
-  // Update the dataset min and max values
-  viewModel.minValue = datasetMinValue;
-  viewModel.maxValue = datasetMaxValue;
+  updateAxes(viewport: IViewport) {
+    // Assign our margin values so we can re-use them more easily
+    this.viewModel.margin.bottom = 25;
+    this.viewModel.margin.left = 130;
+    this.viewModel.margin.right = 30;
+    const margin = this.viewModel.margin;
 
-  // Value axis domain (min/max)
-  const valueAxisDomain: [number, number] = [datasetMinValue, datasetMaxValue];
+    // Value axis domain (min/max)
+    const valueAxisDomain: [number, number] = [
+      this.viewModel.minValue,
+      this.viewModel.maxValue,
+    ];
 
-  // Category axis domain (unique values)
-  const categoryAxisDomain = viewModel.categories.map((c) => c.name);
+    // Category axis domain (unique values)
+    const categoryAxisDomain = this.viewModel.categories.map((c) => c.name);
 
-  // Derived range for the value axis, based on margin values
-  const valueAxisRange: [number, number] = [
-    margin.left,
-    viewport.width - margin.right,
-  ];
+    // Derived range for the value axis, based on margin values
+    const valueAxisRange: [number, number] = [
+      margin.left,
+      viewport.width - margin.right,
+    ];
 
-  // Derived range for the category axis, based on margin values
-  const categoryAxisRange: [number, number] = [
-    margin.top,
-    viewport.height - margin.bottom,
-  ];
+    // Derived range for the category axis, based on margin values
+    const categoryAxisRange: [number, number] = [
+      margin.top,
+      viewport.height - margin.bottom,
+    ];
 
-  // Tick count for value axis
-  const valueAxisTickCount = 3;
+    // Tick count for value axis
+    const valueAxisTickCount = 3;
 
-  // Set-up category axis
-  viewModel.categoryAxis = {
-    range: categoryAxisRange,
-    domain: categoryAxisDomain,
-    scale: d3Scale
-      .scaleBand()
-      .domain(categoryAxisDomain)
-      .range(categoryAxisRange)
-      .padding(0.2),
-    translate: {
-      x: margin.left,
-      y: 0,
-    },
-  };
+    // Set-up category axis
+    this.viewModel.categoryAxis = {
+      range: categoryAxisRange,
+      domain: categoryAxisDomain,
+      scale: d3Scale
+        .scaleBand()
+        .domain(categoryAxisDomain)
+        .range(categoryAxisRange)
+        .padding(0.2),
+      translate: {
+        x: margin.left,
+        y: 0,
+      },
+    };
 
-  // Set-up value axis
-  viewModel.valueAxis = {
-    range: valueAxisRange,
-    domain: valueAxisDomain,
-    scale: d3Scale
-      .scaleLinear()
-      .domain(valueAxisDomain)
-      .range(valueAxisRange)
-      .nice(valueAxisTickCount),
-    translate: {
-      x: 0,
-      y: viewport.height - margin.bottom,
-    },
-    tickCount: valueAxisTickCount,
-    tickSize: -viewport.height - margin.top - margin.bottom,
-  };
+    // Set-up value axis
+    this.viewModel.valueAxis = {
+      range: valueAxisRange,
+      domain: valueAxisDomain,
+      scale: d3Scale
+        .scaleLinear()
+        .domain(valueAxisDomain)
+        .range(valueAxisRange)
+        .nice(valueAxisTickCount),
+      translate: {
+        x: 0,
+        y: viewport.height - margin.bottom,
+      },
+      tickCount: valueAxisTickCount,
+      tickSize: -viewport.height - margin.top - margin.bottom,
+    };
+  }
 
-  // View model
-  return viewModel;
+  /**
+   * Creates an 'empty' viewModel, essentially resetting it.
+   *
+   * @param settings  - parsed visual settings
+   */
+  private getNewViewModel(settings?: VisualSettings): IViewModel {
+    return {
+      isValid: false,
+      margin: {
+        top: 10,
+        right: 10,
+        bottom: 10,
+        left: 10,
+      },
+      categories: [],
+      settings: settings,
+      categoryAxis: null,
+      valueAxis: null,
+      minValue: 0,
+      maxValue: 0,
+    };
+  }
+
+  /**
+   * Test the supplied data view to ensure that it's valid for our visual's view model logic.
+   *
+   * @param dataView  - dataView from update options
+   */
+  private isDataViewValid(dataView: DataView): boolean {
+    if (
+      dataView &&
+      dataView.categorical &&
+      dataView.categorical.categories &&
+      dataView.categorical.categories.length === 1 &&
+      dataView.categorical.values &&
+      dataView.categorical.values.length > 0
+    ) {
+      return true;
+    }
+    return false;
+  }
 }
