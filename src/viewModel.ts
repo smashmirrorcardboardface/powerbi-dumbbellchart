@@ -2,6 +2,9 @@ import powerbi from 'powerbi-visuals-api';
 import IViewport = powerbi.IViewport;
 import DataView = powerbi.DataView;
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
+import ISelectionId = powerbi.visuals.ISelectionId;
+import { dataViewObject } from 'powerbi-visuals-utils-dataviewutils';
+import getFillColorByPropertyName = dataViewObject.getFillColorByPropertyName;
 
 import { VisualSettings } from './settings';
 
@@ -69,6 +72,10 @@ interface IMargin {
 export interface IGroup {
   // Name of group
   name: string;
+  // to select unique value of series
+  groupSelectionId: ISelectionId;
+  //selction for intersection of category/series/measure
+  dataPointSelectionId: ISelectionId;
   // Data point value
   value: number;
   // Data point color
@@ -85,6 +92,8 @@ export interface ICategory {
   max: number;
   // Minimum group value
   min: number;
+  //category selection id
+  selectionId: ISelectionId;
   // Category group items
   groups: IGroup[];
 }
@@ -152,27 +161,54 @@ export class ViewModelManager {
       // using variables in this part of the mapping process and will reset when we hit the next category.
       let categoryMinValue: number, categoryMaxValue: number;
 
+      // build selectionId for category
+      const categorySelectionId = this.host
+        .createSelectionIdBuilder()
+        .withCategory(categoryColumn, ci)
+        .createSelectionId();
+
       // The number of entries in the categorical.values array denotes how many groups we have in each
       // category, so we can iterate over these too and use the category index from the outer foreach
       // to access the correct measure value from each group's values array.
-      const groups: IGroup[] = valueGroupings.map((g, gi) => {
+      const groups: IGroup[] = valueGroupings.grouped().map((g, gi) => {
+        // get measure column
+        const measure = g.values.find((m) => m.source.roles.measure);
         // Get group name
-        const groupName = <string>g.source.groupName;
+        const groupName = <string>g.name;
+        //series selection id
+        const groupSelectionId = this.host
+          .createSelectionIdBuilder()
+          .withSeries(valueGroupings, g)
+          .createSelectionId();
+
+        // build selectionId for category/series/measure
+        const dataPointSelectionId = this.host
+          .createSelectionIdBuilder()
+          .withCategory(categoryColumn, ci)
+          .withSeries(valueGroupings, g)
+          .withMeasure(measure.source.queryName)
+          .createSelectionId();
 
         // Get current value. Similar to category, it needs to be type-cast. As we have restricted
         // valid data types in our data roles, we know it's safe to cast it to a number.
-        const groupValue = <number>g.values[ci];
+        const groupValue = <number>measure.values[ci];
 
         // Set group min/max to measure value if it's at the extremes
         categoryMinValue = Math.min(categoryMinValue || groupValue, groupValue);
         categoryMaxValue = Math.max(categoryMaxValue || groupValue, groupValue);
 
         // Resolve colour from theme for this group name
-        const color = this.host.colorPalette.getColor(groupName).value;
+        const color = getFillColorByPropertyName(
+          g.objects?.dataPoints,
+          'fillColor',
+          this.host.colorPalette.getColor(groupName).value
+        );
 
         // Return a valid IGroup for this iteration.
         return {
           name: groupName,
+          groupSelectionId: groupSelectionId,
+          dataPointSelectionId: dataPointSelectionId,
           value: groupValue,
           color: color,
         };
@@ -194,6 +230,7 @@ export class ViewModelManager {
         groups: groups,
         min: categoryMinValue,
         max: categoryMaxValue,
+        selectionId: categorySelectionId,
       });
     });
 

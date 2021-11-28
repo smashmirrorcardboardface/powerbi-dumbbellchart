@@ -94,9 +94,38 @@ export class Visual implements IVisual {
   public enumerateObjectInstances(
     options: EnumerateVisualObjectInstancesOptions
   ): VisualObjectInstance[] | VisualObjectInstanceEnumerationObject {
-    return VisualSettings.enumerateObjectInstances(
-      this.settings || VisualSettings.getDefault(),
-      options
+    let objects = <VisualObjectInstanceEnumerationObject>(
+      VisualSettings.enumerateObjectInstances(
+        this.settings || VisualSettings.getDefault(),
+        options
+      )
     );
+
+    console.log(`object: ${options.objectName}`);
+
+    switch (options.objectName) {
+      case 'dataPoints': {
+        this.viewModelManager.viewModel.categories[0].groups.forEach(
+          (group, index) => {
+            objects.instances.push({
+              objectName: options.objectName,
+              displayName: group.name,
+              properties: {
+                fillColor: {
+                  solid: {
+                    color: group.color,
+                  },
+                },
+              },
+              selector: group.groupSelectionId.getSelector(),
+            });
+          }
+        );
+      }
+    }
+
+    console.log(objects.instances);
+
+    return objects;
   }
 }
